@@ -1,2 +1,2 @@
 # Trello
-Staj Projesi 1
+Akıllı Görev ve Proje Yönetim Sistemi
