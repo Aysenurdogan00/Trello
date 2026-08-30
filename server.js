@@ -78,21 +78,16 @@ const initDb = async () => {
 
 initDb();
 
-// RESEND HTTP API İLE GÖNDERİM (TIMEOUT ENGELENİR)
 const sendVerificationEmail = async (targetEmail, username, code) => {
   try {
-    // Resend Sandbox modunda sadece kendi kayıtlı email adresinize gönderim izni verir.
-    // Eğer formda farklı bir mail yazılsa bile Resend API engel vermesin diye alıcıyı sabitliyoruz.
-    const recipient = process.env.RESEND_RECIPIENT_EMAIL || 'ryakut263@gmail.com';
-
     const response = await resend.emails.send({
       from: 'onboarding@resend.dev',
-      to: recipient,
+      to: 'aysenur911.aysenur@gmail.com', // 👈 BURAYA KESİN OLARAK BU MAİLİ YAZIN
       subject: `E-posta Doğrulama Kodu (${username} - ${targetEmail})`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
           <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
-          <p style="color: #334155; font-size: 15px;"><strong>${targetEmail}</strong> adresi için oluşturulan doğrulama kodunuz:</p>
+          <p style="color: #334155; font-size: 15px;"><strong>${targetEmail}</strong> hesabı için oluşturulan doğrulama kodunuz:</p>
           <div style="background-color: #f1f5f9; padding: 12px; text-align: center; border-radius: 6px; margin: 16px 0;">
             <span style="font-size: 24px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">${code}</span>
           </div>
@@ -103,7 +98,7 @@ const sendVerificationEmail = async (targetEmail, username, code) => {
     if (response.error) {
       console.error('❌ RESEND API HATASI:', response.error);
     } else {
-      console.log(`✅ [MAİL BAŞARILI]: Kod e-postanıza iletildi. ID: ${response.data.id}`);
+      console.log(`✅ [MAİL BAŞARILI]: Kod mailinize iletildi. ID: ${response.data.id}`);
     }
   } catch (e) {
     console.error('❌ RESEND GÖNDERİM HATASI:', e.message);
