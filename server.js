@@ -3,22 +3,18 @@ import cors from 'cors';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
 const { Pool } = pg;
 const app = express();
 
-// Güvenlik Başlıkları (Helmet)
 app.use(helmet());
-
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 
-// --- RATE LIMITING (GÜVENLİK SINIRLAMALARI) ---
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -37,23 +33,17 @@ const authLimiter = rateLimit({
 
 app.use('/api/', generalLimiter);
 
-// --- POSTGRESQL BULUT (RENDER) BAĞLANTISI ---
 const connectionString = process.env.DATABASE_URL || 'postgresql://trello_db_atqw_user:UD2lXny9bNRYu9bjnNoMIqMMdJp5D8Mo@dpg-da8nnjqd0e5s73974mq0-a.oregon-postgres.render.com/trello_db_atqw';
 
 const pool = new Pool({
   connectionString: connectionString,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false }
 });
 
-// Otomatik Tablo Oluşturma Fonksiyonu
 const initDb = async () => {
   try {
     const client = await pool.connect();
-    console.log('✅ Render PostgreSQL bulut veritabanına başarıyla bağlanıldı!');
     
-    // Users tablosu
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -65,7 +55,6 @@ const initDb = async () => {
       );
     `);
 
-    // Tasks tablosu
     await client.query(`
       CREATE TABLE IF NOT EXISTS tasks (
         id SERIAL PRIMARY KEY,
@@ -77,25 +66,14 @@ const initDb = async () => {
       );
     `);
 
-    console.log('✅ Veritabanı tabloları hazır!');
     client.release();
   } catch (err) {
-    console.error('❌ Veritabanı bağlantı/tablo hatası:', err.stack);
+    console.error('Veritabanı hatası:', err.stack);
   }
 };
 
 initDb();
 
-// E-posta Gönderici Servisi
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'KENDI_GMAIL_ADRESIN@gmail.com',
-    pass: process.env.EMAIL_PASS || 'xxxx xxxx xxxx xxxx',
-  },
-});
-
-// --- JWT AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -109,9 +87,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- AUTH ROTALARI ---
-
-// 1. KAYIT OL (Otomatik Onaylı)
+// 1. KAYIT OL (Mail atmaz, direkt kaydeder)
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -131,7 +107,6 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Otomatik olarak TRUE şekilde kaydediyoruz
     await pool.query(
       'INSERT INTO users (username, email, password, is_verified) VALUES ($1, $2, $3, TRUE)',
       [username, email, hashedPassword]
@@ -144,7 +119,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. GİRİŞ YAP (LOGIN)
+// 2. GİRİŞ YAP (Mail onayına BAKMAZ, direkt şifreyi kontrol edip içeri alır)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -168,9 +143,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   }
 });
 
-// --- GÖREV ROTALARI ---
-
-// GET: Görevleri Çek
+// GÖREV ROTALARI
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -179,12 +152,10 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error('GET Hatası:', err);
     res.status(500).json({ error: 'Veritabanı hatası' });
   }
 });
 
-// POST: Görev Ekle
 app.post('/api/tasks', authenticateToken, async (req, res) => {
   const { title, status = 'TODO', category = 'Görev' } = req.body;
   try {
@@ -194,12 +165,10 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('POST Hatası:', err);
     res.status(500).json({ error: 'Görev eklenemedi' });
   }
 });
 
-// PUT: Görev Durumunu Güncelle
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -210,12 +179,10 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error('PUT Hatası:', err);
     res.status(500).json({ error: 'Güncelleme hatası' });
   }
 });
 
-// DELETE: Görev Sil
 app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
@@ -225,12 +192,11 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error('DELETE Hatası:', err);
     res.status(500).json({ error: 'Silme hatası' });
   }
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Sunucu ${PORT} portunda çalışıyor.`);
+  console.log(`Sunucu çalışıyor.`);
 });
