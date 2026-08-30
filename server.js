@@ -18,7 +18,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 const resend = new Resend(process.env.RESEND_API_KEY || 're_test_key');
 
-// RATE LIMIT (Test ortamı için esnek ayarlar)
+// RATE LIMIT
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 100,
@@ -104,7 +104,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ADMIN TEMİZLEME ROTASI
+// ADMIN TEMİZLEME ROTASI (Veritabanını sıfırlamak için)
 app.get('/api/admin/clean-all', async (req, res) => {
   try {
     await pool.query('TRUNCATE TABLE users CASCADE');
@@ -117,6 +117,8 @@ app.get('/api/admin/clean-all', async (req, res) => {
 // 1. KAYIT OL
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
+  
+  if (!email) return res.status(400).json({ error: 'E-posta adresi gereklidir.' });
   const cleanEmail = email.trim().toLowerCase();
 
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
@@ -129,7 +131,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const userExist = await pool.query(
       'SELECT * FROM users WHERE LOWER(email) = $1 OR LOWER(username) = LOWER($2)', 
-      [cleanEmail, username]
+      [cleanEmail, username.trim()]
     );
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -142,11 +144,11 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
         await pool.query(
           'UPDATE users SET username = $1, password = $2, verification_code = $3 WHERE id = $4',
-          [username, hashedPassword, verificationCode, existingUser.id]
+          [username.trim(), hashedPassword, verificationCode, existingUser.id]
         );
 
         console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
-        sendVerificationEmail(cleanEmail, username, verificationCode);
+        sendVerificationEmail(cleanEmail, username.trim(), verificationCode);
 
         return res.status(200).json({
           message: 'Hesabınız henüz doğrulanmamıştı. Yeni doğrulama kodu gönderildi.',
@@ -163,11 +165,11 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     await pool.query(
       'INSERT INTO users (username, email, password, verification_code, is_verified) VALUES ($1, $2, $3, $4, FALSE)',
-      [username, cleanEmail, hashedPassword, verificationCode]
+      [username.trim(), cleanEmail, hashedPassword, verificationCode]
     );
 
     console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
-    sendVerificationEmail(cleanEmail, username, verificationCode);
+    sendVerificationEmail(cleanEmail, username.trim(), verificationCode);
 
     return res.status(201).json({
       message: 'Kayıt alındı. Lütfen e-postanıza gelen doğrulama kodunu girin.',
@@ -181,7 +183,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. KODU DOĞRULA (VERIFY) - (Kullanıcı bulunamadı hatası düzeltildi)
+// 2. KODU DOĞRULA (VERIFY)
 app.post('/api/auth/verify', authLimiter, async (req, res) => {
   const { email, code } = req.body;
   if (!email) return res.status(400).json({ error: 'E-posta adresi eksik.' });
@@ -200,7 +202,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 
     const user = userResult.rows[0];
     
-    if (user.verification_code !== code) {
+    if (user.verification_code !== code.trim()) {
       return res.status(400).json({ error: 'Girdiğiniz doğrulama kodu hatalı!' });
     }
 
@@ -219,6 +221,8 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 // 3. GİRİŞ YAP (LOGIN)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
+  if (!email) return res.status(400).json({ error: 'E-posta adresi gereklidir.' });
+
   const cleanEmail = email.trim().toLowerCase();
 
   try {
