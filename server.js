@@ -3,23 +3,22 @@ import cors from 'cors';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
 const { Pool } = pg;
 const app = express();
 
-// Express Rate-Limit proxy uyarısını düzeltme
 app.set('trust proxy', 1);
-
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
+const resend = new Resend(process.env.RESEND_API_KEY || 're_test_key');
 
-// RATE LIMIT (Test için esnek)
+// RATE LIMIT
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 100,
@@ -79,38 +78,17 @@ const initDb = async () => {
 
 initDb();
 
-// GÜNCELLENEN NODEMAILER AYARI (Timeout engelini aşmak için Port 587 + STARTTLS)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // TLS kullanır
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false
-  },
-  connectionTimeout: 10000, // 10 saniye bağlantı sınırı
-});
-
 const sendVerificationEmail = async (email, username, code) => {
-  const mailOptions = {
-    from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: 'E-posta Doğrulama Kodu',
-    html: `
-      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f1f5f9; border-radius: 8px;">
-        <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
-        <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu hesabınızı doğrulamak için aşağıdaki 6 haneli kodu kullanın:</p>
-        <div style="background-color: #2563eb; color: white; font-size: 24px; font-weight: bold; letter-spacing: 6px; padding: 12px 24px; display: inline-block; border-radius: 6px; margin: 16px 0;">
-          ${code}
-        </div>
-        <p style="color: #64748b; font-size: 12px;">Bu kodu siz talep etmediyseniz lütfen bu e-postayı dikkate almayın.</p>
-      </div>
-    `,
-  };
-  await transporter.sendMail(mailOptions);
+  try {
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: email,
+      subject: 'E-posta Doğrulama Kodu',
+      html: `<h2>Hoş Geldiniz, ${username}!</h2><p>Doğrulama kodunuz: <strong>${code}</strong></p>`
+    });
+  } catch (e) {
+    console.error('Resend Mail Hatası:', e);
+  }
 };
 
 const authenticateToken = (req, res, next) => {
@@ -153,8 +131,8 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
           [username, hashedPassword, verificationCode, email]
         );
 
-        console.log(`[TEST KODU KOPSUSU] ${email} için üretilen doğrulama kodu: ${verificationCode}`);
-        sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
+        console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
+        sendVerificationEmail(email, username, verificationCode);
 
         return res.status(200).json({
           message: 'Hesabınız henüz doğrulanmamıştı. Yeni kod gönderildi.',
@@ -174,8 +152,8 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [username, email, hashedPassword, verificationCode]
     );
 
-    console.log(`[TEST KODU KOPYASI] ${email} için üretilen doğrulama kodu: ${verificationCode}`);
-    sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
+    console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
+    sendVerificationEmail(email, username, verificationCode);
 
     return res.status(201).json({
       message: 'Kayıt alındı. Lütfen e-postanıza gelen doğrulama kodunu girin.',
@@ -189,7 +167,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. KODU DOĞRULA (VERIFY)
+// 2. KODU DOĞRULA
 app.post('/api/auth/verify', authLimiter, async (req, res) => {
   const { email, code } = req.body;
   try {
@@ -209,7 +187,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   }
 });
 
-// 3. GİRİŞ YAP (LOGIN)
+// 3. GİRİŞ YAP
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -225,8 +203,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
       await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
       
-      console.log(`[TEST KODU KOPYASI] ${email} için üretilen doğrulama kodu: ${newCode}`);
-      sendVerificationEmail(email, user.username, newCode).catch(err => console.error('Mail gönderilemedi:', err));
+      console.log(`[DOĞRULAMA KODU]: ${newCode}`);
+      sendVerificationEmail(email, user.username, newCode);
 
       return res.status(403).json({ 
         error: 'Lütfen önce e-posta adresinizi doğrulayın! Yeni kod gönderildi.',
