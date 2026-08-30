@@ -75,7 +75,6 @@ const initDb = async () => {
 
 initDb();
 
-// E-posta Gönderici Servisi (Gmail App Password)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   host: 'smtp.gmail.com',
@@ -86,6 +85,26 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS,
   },
 });
+
+// E-posta Gönderme Yardımcı Fonksiyonu
+const sendVerificationEmail = async (email, username, code) => {
+  const mailOptions = {
+    from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'E-posta Doğrulama Kodu',
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f1f5f9; border-radius: 8px;">
+        <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
+        <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu hesabınızı doğrulamak için aşağıdaki 6 haneli kodu kullanın:</p>
+        <div style="background-color: #2563eb; color: white; font-size: 24px; font-weight: bold; letter-spacing: 6px; padding: 12px 24px; display: inline-block; border-radius: 6px; margin: 16px 0;">
+          ${code}
+        </div>
+        <p style="color: #64748b; font-size: 12px;">Bu kodu siz talep etmediyseniz lütfen bu e-postayı dikkate almayın.</p>
+      </div>
+    `,
+  };
+  await transporter.sendMail(mailOptions);
+};
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -100,7 +119,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// 1. KAYIT OL & KOD GÖNDER
+// 1. KAYIT OL (Unverified Hesap Yönetimli)
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -113,7 +132,29 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
   try {
     const userExist = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
+    
     if (userExist.rows.length > 0) {
+      const existingUser = userExist.rows[0];
+      
+      // Kilitlenmiş hesap çözümü: Kullanıcı daha önce kaydolmuş ama doğrulamamışsa
+      if (!existingUser.is_verified) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        await pool.query(
+          'UPDATE users SET username = $1, password = $2, verification_code = $3 WHERE email = $4',
+          [username, hashedPassword, newCode, email]
+        );
+
+        await sendVerificationEmail(email, username, newCode);
+        return res.status(200).json({ 
+          message: 'Hesabınız henüz doğrulanmamıştı. Yeni doğrulama kodu e-postanıza gönderildi.',
+          needsVerification: true,
+          email 
+        });
+      }
+
       return res.status(400).json({ error: 'Kullanıcı adı veya email zaten kullanılıyor.' });
     }
 
@@ -126,27 +167,11 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [username, email, hashedPassword, verificationCode]
     );
 
-    const mailOptions = {
-      from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'E-posta Doğrulama Kodu',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f1f5f9; border-radius: 8px;">
-          <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
-          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu hesabınızı doğrulamak için aşağıdaki 6 haneli kodu kullanın:</p>
-          <div style="background-color: #2563eb; color: white; font-size: 24px; font-weight: bold; letter-spacing: 6px; padding: 12px 24px; display: inline-block; border-radius: 6px; margin: 16px 0;">
-            ${verificationCode}
-          </div>
-          <p style="color: #64748b; font-size: 12px;">Bu kodu siz talep etmediyseniz lütfen bu e-postayı dikkate almayın.</p>
-        </div>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
-    res.status(201).json({ message: 'Doğrulama kodu e-postanıza gönderildi.' });
+    await sendVerificationEmail(email, username, verificationCode);
+    res.status(201).json({ message: 'Doğrulama kodu e-postanıza gönderildi.', needsVerification: true, email });
   } catch (err) {
-    console.error('Register / Mail Hatası:', err);
-    res.status(500).json({ error: 'E-posta gönderilemedi. Lütfen sistem yöneticisiyle iletişime geçin.' });
+    console.error('Register Hatası:', err);
+    res.status(500).json({ error: 'E-posta gönderilemedi veya sunucu hatası.' });
   }
 });
 
@@ -170,7 +195,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   }
 });
 
-// 3. GİRİŞ YAP (LOGIN)
+// 3. GİRİŞ YAP (Unverified Hesaba Otomatik Kod Gönderimi)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -178,10 +203,27 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (userResult.rows.length === 0) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
 
     const user = userResult.rows[0];
-    if (!user.is_verified) return res.status(403).json({ error: 'Lütfen önce e-posta adresinizi doğrulayın!' });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
+
+    // Hesap doğrulanmamışsa yeni kod gönder ve yönlendirme bayrağı ver
+    if (!user.is_verified) {
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
+      
+      try {
+        await sendVerificationEmail(email, user.username, newCode);
+      } catch (e) {
+        console.error('Mail gönderilemedi:', e);
+      }
+
+      return res.status(403).json({ 
+        error: 'Lütfen önce e-posta adresinizi doğrulayın! Yeni kod e-postanıza gönderildi.',
+        needsVerification: true,
+        email 
+      });
+    }
 
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1d' });
 
