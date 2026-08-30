@@ -18,7 +18,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 const resend = new Resend(process.env.RESEND_API_KEY || 're_test_key');
 
-// RATE LIMIT
+// RATE LIMIT (Test için esnek ayarlar)
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 100,
@@ -84,7 +84,7 @@ const sendVerificationEmail = async (email, username, code) => {
       from: 'onboarding@resend.dev',
       to: email,
       subject: 'E-posta Doğrulama Kodu',
-      html: `<h2>Hoş Geldiniz, ${username}!</h2><p>Doğrulama kodunuz: <strong>${code}</strong></p>`
+      html: `<h2>Hoş Geldiniz, ${username}!</h2><p>Proje Yönetim Panosu doğrulama kodunuz: <strong>${code}</strong></p>`
     });
   } catch (e) {
     console.error('Resend Mail Hatası:', e);
@@ -135,7 +135,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         sendVerificationEmail(email, username, verificationCode);
 
         return res.status(200).json({
-          message: 'Hesabınız henüz doğrulanmamıştı. Yeni kod gönderildi.',
+          message: 'Hesabınız henüz doğrulanmamıştı. Yeni doğrulama kodu gönderildi.',
           needsVerification: true,
           email
         });
@@ -167,7 +167,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. KODU DOĞRULA
+// 2. KODU DOĞRULA (VERIFY)
 app.post('/api/auth/verify', authLimiter, async (req, res) => {
   const { email, code } = req.body;
   try {
@@ -187,7 +187,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   }
 });
 
-// 3. GİRİŞ YAP
+// 3. GİRİŞ YAP (LOGIN)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -222,6 +222,36 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   } catch (err) {
     console.error('Login Hatası:', err);
     res.status(500).json({ error: 'Sunucu hatası' });
+  }
+});
+
+// 4. KULLANICININ KENDİ HESABINI SİLMESİ
+app.delete('/api/users/me', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
+    res.json({ success: true, message: 'Hesabınız başarıyla silindi.' });
+  } catch (err) {
+    console.error('Hesap Silme Hatası:', err);
+    res.status(500).json({ error: 'Hesap silinirken bir hata oluştu.' });
+  }
+});
+
+// ADMIN/TEST TEMİZLEME ROTALARI (Tarayıcıdan çağırabilirsiniz)
+app.get('/api/admin/clean-unverified', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM users WHERE is_verified = FALSE');
+    res.json({ message: `${result.rowCount} adet doğrulanmamış kilitli hesap silindi.` });
+  } catch (err) {
+    res.status(500).json({ error: 'Silme hatası' });
+  }
+});
+
+app.get('/api/admin/clean-all', async (req, res) => {
+  try {
+    await pool.query('TRUNCATE TABLE users CASCADE');
+    res.json({ message: 'Tüm kullanıcılar ve veriler başarıyla sıfırlandı.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Temizleme hatası' });
   }
 });
 
