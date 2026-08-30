@@ -18,7 +18,7 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 const resend = new Resend(process.env.RESEND_API_KEY || 're_test_key');
 
-// RATE LIMIT (Test için esnek ayarlar)
+// RATE LIMIT (Test ortamı için esnek ayarlar)
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 100,
@@ -104,9 +104,20 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// ADMIN TEMİZLEME ROTASI
+app.get('/api/admin/clean-all', async (req, res) => {
+  try {
+    await pool.query('TRUNCATE TABLE users CASCADE');
+    res.json({ message: 'Tüm kullanıcılar ve veriler başarıyla sıfırlandı.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Temizleme hatası' });
+  }
+});
+
 // 1. KAYIT OL
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
+  const cleanEmail = email.trim().toLowerCase();
 
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
   if (!passwordRegex.test(password)) {
@@ -116,7 +127,10 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 
   try {
-    const userExist = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
+    const userExist = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = $1 OR LOWER(username) = LOWER($2)', 
+      [cleanEmail, username]
+    );
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     if (userExist.rows.length > 0) {
@@ -127,17 +141,17 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         await pool.query(
-          'UPDATE users SET username = $1, password = $2, verification_code = $3 WHERE email = $4',
-          [username, hashedPassword, verificationCode, email]
+          'UPDATE users SET username = $1, password = $2, verification_code = $3 WHERE id = $4',
+          [username, hashedPassword, verificationCode, existingUser.id]
         );
 
         console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
-        sendVerificationEmail(email, username, verificationCode);
+        sendVerificationEmail(cleanEmail, username, verificationCode);
 
         return res.status(200).json({
           message: 'Hesabınız henüz doğrulanmamıştı. Yeni doğrulama kodu gönderildi.',
           needsVerification: true,
-          email
+          email: cleanEmail
         });
       }
 
@@ -149,16 +163,16 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     await pool.query(
       'INSERT INTO users (username, email, password, verification_code, is_verified) VALUES ($1, $2, $3, $4, FALSE)',
-      [username, email, hashedPassword, verificationCode]
+      [username, cleanEmail, hashedPassword, verificationCode]
     );
 
     console.log(`[DOĞRULAMA KODU]: ${verificationCode}`);
-    sendVerificationEmail(email, username, verificationCode);
+    sendVerificationEmail(cleanEmail, username, verificationCode);
 
     return res.status(201).json({
       message: 'Kayıt alındı. Lütfen e-postanıza gelen doğrulama kodunu girin.',
       needsVerification: true,
-      email
+      email: cleanEmail
     });
 
   } catch (err) {
@@ -167,19 +181,34 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. KODU DOĞRULA (VERIFY)
+// 2. KODU DOĞRULA (VERIFY) - (Kullanıcı bulunamadı hatası düzeltildi)
 app.post('/api/auth/verify', authLimiter, async (req, res) => {
   const { email, code } = req.body;
+  if (!email) return res.status(400).json({ error: 'E-posta adresi eksik.' });
+
+  const cleanEmail = email.trim().toLowerCase();
+
   try {
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (userResult.rows.length === 0) return res.status(400).json({ error: 'Kullanıcı bulunamadı.' });
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = $1', 
+      [cleanEmail]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Kullanıcı bulunamadı.' });
+    }
 
     const user = userResult.rows[0];
+    
     if (user.verification_code !== code) {
       return res.status(400).json({ error: 'Girdiğiniz doğrulama kodu hatalı!' });
     }
 
-    await pool.query('UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE email = $1', [email]);
+    await pool.query(
+      'UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = $1', 
+      [user.id]
+    );
+
     res.json({ message: 'E-posta başarıyla doğrulandı. Şimdi giriş yapabilirsiniz!' });
   } catch (err) {
     console.error('Verify Hatası:', err);
@@ -190,8 +219,14 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
 // 3. GİRİŞ YAP (LOGIN)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
+  const cleanEmail = email.trim().toLowerCase();
+
   try {
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = $1', 
+      [cleanEmail]
+    );
+
     if (userResult.rows.length === 0) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
 
     const user = userResult.rows[0];
@@ -201,15 +236,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     if (!user.is_verified) {
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-      await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
+      await pool.query('UPDATE users SET verification_code = $1 WHERE id = $2', [newCode, user.id]);
       
       console.log(`[DOĞRULAMA KODU]: ${newCode}`);
-      sendVerificationEmail(email, user.username, newCode);
+      sendVerificationEmail(cleanEmail, user.username, newCode);
 
       return res.status(403).json({ 
         error: 'Lütfen önce e-posta adresinizi doğrulayın! Yeni kod gönderildi.',
         needsVerification: true,
-        email 
+        email: cleanEmail 
       });
     }
 
@@ -222,36 +257,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   } catch (err) {
     console.error('Login Hatası:', err);
     res.status(500).json({ error: 'Sunucu hatası' });
-  }
-});
-
-// 4. KULLANICININ KENDİ HESABINI SİLMESİ
-app.delete('/api/users/me', authenticateToken, async (req, res) => {
-  try {
-    await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
-    res.json({ success: true, message: 'Hesabınız başarıyla silindi.' });
-  } catch (err) {
-    console.error('Hesap Silme Hatası:', err);
-    res.status(500).json({ error: 'Hesap silinirken bir hata oluştu.' });
-  }
-});
-
-// ADMIN/TEST TEMİZLEME ROTALARI (Tarayıcıdan çağırabilirsiniz)
-app.get('/api/admin/clean-unverified', async (req, res) => {
-  try {
-    const result = await pool.query('DELETE FROM users WHERE is_verified = FALSE');
-    res.json({ message: `${result.rowCount} adet doğrulanmamış kilitli hesap silindi.` });
-  } catch (err) {
-    res.status(500).json({ error: 'Silme hatası' });
-  }
-});
-
-app.get('/api/admin/clean-all', async (req, res) => {
-  try {
-    await pool.query('TRUNCATE TABLE users CASCADE');
-    res.json({ message: 'Tüm kullanıcılar ve veriler başarıyla sıfırlandı.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Temizleme hatası' });
   }
 });
 
