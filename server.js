@@ -1,4 +1,125 @@
-// 1. KAYIT OL (Garantili Yönlendirme)
+import express from 'express';
+import cors from 'cors';
+import pg from 'pg';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+
+const { Pool } = pg;
+const app = express();
+
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+
+const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
+
+// RATE LIMIT (Test için esnek ayarlandı)
+const generalLimiter = rateLimit({
+  windowMs: 30 * 1000,
+  max: 100,
+  message: { error: 'Çok hızlı istek gönderdiniz. Lütfen 30 saniye bekleyin.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 30 * 1000,
+  max: 100,
+  message: { error: 'Çok fazla deneme yaptınız. Lütfen 30 saniye bekleyin.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/', generalLimiter);
+
+const connectionString = process.env.DATABASE_URL || 'postgresql://trello_db_atqw_user:UD2lXny9bNRYu9bjnNoMIqMMdJp5D8Mo@dpg-da8nnjqd0e5s73974mq0-a.oregon-postgres.render.com/trello_db_atqw';
+
+const pool = new Pool({
+  connectionString: connectionString,
+  ssl: { rejectUnauthorized: false }
+});
+
+const initDb = async () => {
+  try {
+    const client = await pool.connect();
+    
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE,
+        verification_code VARCHAR(6)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        status VARCHAR(20) DEFAULT 'TODO',
+        category VARCHAR(50) DEFAULT 'Görev',
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    client.release();
+  } catch (err) {
+    console.error('Veritabanı hatası:', err.stack);
+  }
+};
+
+initDb();
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+const sendVerificationEmail = async (email, username, code) => {
+  const mailOptions = {
+    from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'E-posta Doğrulama Kodu',
+    html: `
+      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f1f5f9; border-radius: 8px;">
+        <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
+        <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu hesabınızı doğrulamak için aşağıdaki 6 haneli kodu kullanın:</p>
+        <div style="background-color: #2563eb; color: white; font-size: 24px; font-weight: bold; letter-spacing: 6px; padding: 12px 24px; display: inline-block; border-radius: 6px; margin: 16px 0;">
+          ${code}
+        </div>
+        <p style="color: #64748b; font-size: 12px;">Bu kodu siz talep etmediyseniz lütfen bu e-postayı dikkate almayın.</p>
+      </div>
+    `,
+  };
+  await transporter.sendMail(mailOptions);
+};
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.status(401).json({ error: 'Yetkisiz erişim! Token bulunamadı.' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Geçersiz veya süresi dolmuş token.' });
+    req.user = user;
+    next();
+  });
+};
+
+// 1. KAYIT OL (Garantili Akış)
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -16,7 +137,6 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     if (userExist.rows.length > 0) {
       const existingUser = userExist.rows[0];
 
-      // Eğer kullanıcı var ama doğrulanmamışsa: Kodu güncelle ve doğrulama ekranına yönlendir
       if (!existingUser.is_verified) {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -26,20 +146,18 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
           [username, hashedPassword, verificationCode, email]
         );
 
-        // Mail göndermeyi dene (hata verse dahi akışı kesme)
         sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
 
         return res.status(200).json({
-          message: 'Hesabınız henüz doğrulanmamıştı. Doğrulama ekranına yönlendiriliyorsunuz.',
+          message: 'Hesabınız henüz doğrulanmamıştı. Yeni kod gönderildi.',
           needsVerification: true,
           email
         });
       }
 
-      return res.status(400).json({ error: 'Bu kullanıcı adı veya e-posta adresi zaten doğrulanmış bir hesaba ait.' });
+      return res.status(400).json({ error: 'Bu kullanıcı adı veya e-posta adresi zaten kullanılıyor.' });
     }
 
-    // Yeni Kayıt
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -48,7 +166,6 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [username, email, hashedPassword, verificationCode]
     );
 
-    // Mail göndermeyi dene (hata verse dahi akışı kesme)
     sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
 
     return res.status(201).json({
@@ -59,6 +176,121 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
   } catch (err) {
     console.error('Register Hatası:', err);
-    res.status(500).json({ error: 'Veritabanı veya sunucu hatası oluştu.' });
+    res.status(500).json({ error: 'Veritabanı hatası oluştu.' });
   }
+});
+
+// 2. KODU DOĞRULA (VERIFY)
+app.post('/api/auth/verify', authLimiter, async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) return res.status(400).json({ error: 'Kullanıcı bulunamadı.' });
+
+    const user = userResult.rows[0];
+    if (user.verification_code !== code) {
+      return res.status(400).json({ error: 'Girdiğiniz doğrulama kodu hatalı!' });
+    }
+
+    await pool.query('UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE email = $1', [email]);
+    res.json({ message: 'E-posta başarıyla doğrulandı. Şimdi giriş yapabilirsiniz!' });
+  } catch (err) {
+    console.error('Verify Hatası:', err);
+    res.status(500).json({ error: 'Sunucu hatası' });
+  }
+});
+
+// 3. GİRİŞ YAP (LOGIN)
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
+
+    const user = userResult.rows[0];
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
+
+    if (!user.is_verified) {
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
+      
+      sendVerificationEmail(email, user.username, newCode).catch(err => console.error('Mail gönderilemedi:', err));
+
+      return res.status(403).json({ 
+        error: 'Lütfen önce e-posta adresinizi doğrulayın! Yeni kod gönderildi.',
+        needsVerification: true,
+        email 
+      });
+    }
+
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1d' });
+
+    res.json({
+      token,
+      user: { id: user.id, username: user.username, email: user.email }
+    });
+  } catch (err) {
+    console.error('Login Hatası:', err);
+    res.status(500).json({ error: 'Sunucu hatası' });
+  }
+});
+
+// GÖREV ROTALARI
+app.get('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, title, status, category, created_at FROM tasks WHERE user_id = $1 ORDER BY id ASC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Veritabanı hatası' });
+  }
+});
+
+app.post('/api/tasks', authenticateToken, async (req, res) => {
+  const { title, status = 'TODO', category = 'Görev' } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO tasks (title, status, category, user_id) VALUES ($1, $2, $3, $4) RETURNING id, title, status, category, created_at',
+      [title, status, category, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Görev eklenemedi' });
+  }
+});
+
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  try {
+    await pool.query(
+      'UPDATE tasks SET status = $1 WHERE id = $2 AND user_id = $3',
+      [status, id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Güncelleme hatası' });
+  }
+});
+
+app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      'DELETE FROM tasks WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Silme hatası' });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Sunucu çalışıyor.`);
 });
