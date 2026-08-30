@@ -1,75 +1,75 @@
-# Trello
-Akıllı Görev ve Proje Yönetim Sistemi
+# React + TypeScript + Vite
 
-Ekiplerin görev oluşturduğu, takip ettiği ve sürükle-bırak (Kanban) mantığıyla çalışan çok platformlu iş yönetim sistemi.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Proje Özellikleri (Step 1 - Analiz & Tasarım)
+Currently, two official plugins are available:
 
-### 1. Kanban İş Akışı
-* **To Do:** Henüz başlanmamış görevler.
-* **Doing:** Aktif olarak çalışılan görevler.
-* **Done:** Tamamlanan görevler.
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-### 2. User Stories (Kullanıcı Hikayeleri)
-* **US-01:** Kullanıcı sisteme kaydolabilir ve giriş yapabilir.
-* **US-02:** Kullanıcı yeni proje oluşturabilir ve projelerini listeleyebilir.
-* **US-03:** Kullanıcı bir projeye yeni görevler ekleyebilir.
-* **US-04:** Kullanıcı görevlerin durumunu ("todo", "doing", "done") güncelleyebilir.
-* **US-05:** Kullanıcı görev detaylarını güncelleyebilir veya silebilir.
-* **US-06:** Admin tüm kullanıcıları, projeleri ve görevleri yönetebilir.
+## React Compiler
 
----
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## Veritabanı Yapısı (ER Diagram / Tablolar)
+## Expanding the ESLint configuration
 
-### Users (Kullanıcılar)
-* `id` (Primary Key)
-* `username` (VARCHAR)
-* `email` (VARCHAR, Unique)
-* `password_hash` (VARCHAR)
-* `role` ('admin', 'user')
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-### Projects (Projeler)
-* `id` (Primary Key)
-* `title` (VARCHAR)
-* `description` (TEXT)
-* `owner_id` (Foreign Key -> Users.id)
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-### Tasks (Görevler)
-* `id` (Primary Key)
-* `title` (VARCHAR)
-* `description` (TEXT)
-* `status` ('todo', 'doing', 'done')
-* `project_id` (Foreign Key -> Projects.id)
-* `assigned_user_id` (Foreign Key -> Users.id)
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
 
----
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 
-## API Endpoint Planı
+```
 
-| Metot | Endpoint | Açıklama | Auth |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Yeni kullanıcı kaydı | Hayır |
-| `POST` | `/api/auth/login` | Giriş yapma ve JWT alımı | Hayır |
-| `GET` | `/api/projects` | Kullanıcının projelerini getirme | Evet |
-| `POST` | `/api/projects` | Yeni proje oluşturma | Evet |
-| `GET` | `/api/projects/:id/tasks` | Projenin görevlerini getirme | Evet |
-| `POST` | `/api/tasks` | Yeni görev ekleme | Evet |
-| `PUT` | `/api/tasks/:id` | Görev güncelleme | Evet |
-| `DELETE` | `/api/tasks/:id` | Görev silme | Evet |
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
----
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-## Fake API (JSON Server) Kurulumu
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 
-Projenin frontend tarafını geliştirmek için sahte API `json-server` ile yapılandırılmıştır.
-
-### Çalıştırma Adımları:
-1. Gerekli paketi yükleyin:
-   ```bash
-   npm install -g json-server
-   ```
-2. Sahte sunucuyu başlatın:
-   ```bash
-   npx json-server --watch db.json --port 5000
-   ```
+```

@@ -1,37 +1,23 @@
 {
-  "name": "trello-clone-backend",
+  "name": "trello-clone-mobile",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@prisma/adapter-pg": "^7.9.1",
-    "@prisma/client": "^5.22.0",
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
-    "helmet": "^8.3.0",
-    "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^9.0.5",
-    "pg": "^8.23.0"
+    "axios": "^1.20.0",
+    "expo": "~54.0.36",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^26.2.0",
-    "nodemon": "^3.1.14",
-    "prisma": "^5.22.0",
-    "ts-node": "^10.9.2",
-    "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
-  }
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
+  },
+  "private": true
 }
