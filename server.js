@@ -78,15 +78,6 @@ const initDb = async () => {
 
 initDb();
 
-app.get('/api/admin/clean-all', async (req, res) => {
-  try {
-    await pool.query('TRUNCATE TABLE users CASCADE');
-    res.json({ message: 'Tüm kullanıcılar ve veriler başarıyla sıfırlandı.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Temizleme hatası oluştu.' });
-  }
-});
-
 const sendVerificationEmail = async (email, username, code) => {
   try {
     await resend.emails.send({
