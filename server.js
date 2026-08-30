@@ -3,6 +3,7 @@ import cors from 'cors';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -50,7 +51,7 @@ const initDb = async () => {
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        is_verified BOOLEAN DEFAULT TRUE,
+        is_verified BOOLEAN DEFAULT FALSE,
         verification_code VARCHAR(6)
       );
     `);
@@ -74,6 +75,18 @@ const initDb = async () => {
 
 initDb();
 
+// E-posta Gönderici Servisi (Gmail App Password)
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -87,7 +100,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// 1. KAYIT OL (Mail atmaz, direkt kaydeder)
+// 1. KAYIT OL & KOD GÖNDER
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -106,20 +119,58 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     await pool.query(
-      'INSERT INTO users (username, email, password, is_verified) VALUES ($1, $2, $3, TRUE)',
-      [username, email, hashedPassword]
+      'INSERT INTO users (username, email, password, verification_code, is_verified) VALUES ($1, $2, $3, $4, FALSE)',
+      [username, email, hashedPassword, verificationCode]
     );
 
-    res.status(201).json({ message: 'Kayıt başarılı! Şimdi giriş yapabilirsiniz.' });
+    const mailOptions = {
+      from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'E-posta Doğrulama Kodu',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f1f5f9; border-radius: 8px;">
+          <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
+          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu hesabınızı doğrulamak için aşağıdaki 6 haneli kodu kullanın:</p>
+          <div style="background-color: #2563eb; color: white; font-size: 24px; font-weight: bold; letter-spacing: 6px; padding: 12px 24px; display: inline-block; border-radius: 6px; margin: 16px 0;">
+            ${verificationCode}
+          </div>
+          <p style="color: #64748b; font-size: 12px;">Bu kodu siz talep etmediyseniz lütfen bu e-postayı dikkate almayın.</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(201).json({ message: 'Doğrulama kodu e-postanıza gönderildi.' });
   } catch (err) {
-    console.error('Register Hatası:', err);
-    res.status(500).json({ error: 'Sunucu hatası oluştu.' });
+    console.error('Register / Mail Hatası:', err);
+    res.status(500).json({ error: 'E-posta gönderilemedi. Lütfen sistem yöneticisiyle iletişime geçin.' });
   }
 });
 
-// 2. GİRİŞ YAP (Mail onayına BAKMAZ, direkt şifreyi kontrol edip içeri alır)
+// 2. KODU DOĞRULA (VERIFY)
+app.post('/api/auth/verify', authLimiter, async (req, res) => {
+  const { email, code } = req.body;
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) return res.status(400).json({ error: 'Kullanıcı bulunamadı.' });
+
+    const user = userResult.rows[0];
+    if (user.verification_code !== code) {
+      return res.status(400).json({ error: 'Girdiğiniz doğrulama kodu hatalı!' });
+    }
+
+    await pool.query('UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE email = $1', [email]);
+    res.json({ message: 'E-posta başarıyla doğrulandı. Şimdi giriş yapabilirsiniz!' });
+  } catch (err) {
+    console.error('Verify Hatası:', err);
+    res.status(500).json({ error: 'Sunucu hatası' });
+  }
+});
+
+// 3. GİRİŞ YAP (LOGIN)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -127,6 +178,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (userResult.rows.length === 0) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
 
     const user = userResult.rows[0];
+    if (!user.is_verified) return res.status(403).json({ error: 'Lütfen önce e-posta adresinizi doğrulayın!' });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
