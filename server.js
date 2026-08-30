@@ -16,18 +16,19 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 
+// --- RATE LIMITING (TEST İÇİN 30 SANİYEYE DÜŞÜRÜLDÜ) ---
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 30 * 1000, // 30 Saniye
   max: 100,
-  message: { error: 'Çok fazla istek gönderdiniz. Lütfen 15 dakika sonra tekrar deneyin.' },
+  message: { error: 'Çok hızlı istek gönderdiniz. Lütfen 30 saniye bekleyin.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 15,
-  message: { error: 'Çok fazla giriş/kayıt denemesi yaptınız. Lütfen 15 dakika sonra tekrar deneyin.' },
+  windowMs: 30 * 1000, // 30 Saniye
+  max: 100,
+  message: { error: 'Çok fazla deneme yaptınız. Lütfen 30 saniye bekleyin.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -86,7 +87,6 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// E-posta Gönderme Yardımcı Fonksiyonu
 const sendVerificationEmail = async (email, username, code) => {
   const mailOptions = {
     from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
@@ -119,7 +119,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// 1. KAYIT OL (Unverified Hesap Yönetimli)
+// 1. KAYIT OL
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -136,7 +136,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     if (userExist.rows.length > 0) {
       const existingUser = userExist.rows[0];
       
-      // Kilitlenmiş hesap çözümü: Kullanıcı daha önce kaydolmuş ama doğrulamamışsa
+      // Kullanıcı doğrulanmamışsa kodu yenileyip tekrar doğrulama ekranına yönlendirir
       if (!existingUser.is_verified) {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -195,7 +195,7 @@ app.post('/api/auth/verify', authLimiter, async (req, res) => {
   }
 });
 
-// 3. GİRİŞ YAP (Unverified Hesaba Otomatik Kod Gönderimi)
+// 3. GİRİŞ YAP
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -207,7 +207,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Geçersiz email veya şifre.' });
 
-    // Hesap doğrulanmamışsa yeni kod gönder ve yönlendirme bayrağı ver
     if (!user.is_verified) {
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
       await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
