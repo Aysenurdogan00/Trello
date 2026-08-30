@@ -3,7 +3,7 @@ import cors from 'cors';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -16,7 +16,15 @@ app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
-const resend = new Resend(process.env.RESEND_API_KEY || 're_test_key');
+
+// NODEMAILER TRANSPORTER (Gmail SMTP)
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 // RATE LIMIT
 const generalLimiter = rateLimit({
@@ -78,25 +86,27 @@ const initDb = async () => {
 
 initDb();
 
-// --------------------------------------------------------------------------
-// E-POSTA GÖNDERME FONKSİYONU (TEST MODU YÖNTEMİ)
-// Formda hangi e-posta yazılırsa yazılsın kod sizin gelen kutunuza ulaşır.
-// --------------------------------------------------------------------------
+// GİRİLEN HER E-POSTA ADRESİNE MAİL ATAN FONKSİYON
 const sendVerificationEmail = async (targetEmail, username, code) => {
   try {
-    await resend.emails.send({
-      from: 'onboarding@resend.dev',
-      to: 'aysenur911.aysenur@gmail.com',
-      subject: `E-posta Doğrulama Kodu (${username} - ${targetEmail})`,
+    await transporter.sendMail({
+      from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
+      to: targetEmail,
+      subject: 'E-posta Doğrulama Kodu',
       html: `
-        <h2>Hoş Geldiniz, ${username}!</h2>
-        <p><strong>${targetEmail}</strong> adresi için oluşturulan doğrulama kodunuz:</p>
-        <h1 style="color: #2563eb; letter-spacing: 4px;">${code}</h1>
-      `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+          <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
+          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu doğrulama kodunuz aşağıdadır:</p>
+          <div style="background-color: #f1f5f9; padding: 12px; text-align: center; border-radius: 6px; margin: 16px 0;">
+            <span style="font-size: 24px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">${code}</span>
+          </div>
+          <p style="color: #64748b; font-size: 13px;">Bu kodu siz talep etmediyseniz lütfen dikkate almayın.</p>
+        </div>
+      `,
     });
-    console.log(`[RESEND]: Kod ${targetEmail} kullanıcısı için sizin e-postanıza gönderildi.`);
+    console.log(`[NODEMAILER]: Doğrulama kodu ${targetEmail} adresine başarıyla gönderildi.`);
   } catch (e) {
-    console.error('Resend Mail Hatası:', e);
+    console.error('Nodemailer Mail Gönderim Hatası:', e);
   }
 };
 
