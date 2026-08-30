@@ -18,14 +18,22 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 
 // NODEMAILER TRANSPORTER (Gmail SMTP)
+// ❌ ESKİ (Hata Veren) AYAR:
+// const transporter = nodemailer.createTransport({ service: 'gmail', auth: ... });
+
+// ✅ YENİ (Render Uyumlu SSL Port 465) AYAR:
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // SSL kullanımı zaman aşımını engeller
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    rejectUnauthorized: false
+  }
 });
-
 // RATE LIMIT
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
