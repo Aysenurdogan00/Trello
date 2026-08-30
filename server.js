@@ -89,24 +89,24 @@ initDb();
 // GİRİLEN HER E-POSTA ADRESİNE MAİL ATAN FONKSİYON
 const sendVerificationEmail = async (targetEmail, username, code) => {
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
       to: targetEmail,
       subject: 'E-posta Doğrulama Kodu',
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
           <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
-          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu doğrulama kodunuz aşağıdadır:</p>
+          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu doğrulama kodunuz:</p>
           <div style="background-color: #f1f5f9; padding: 12px; text-align: center; border-radius: 6px; margin: 16px 0;">
             <span style="font-size: 24px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">${code}</span>
           </div>
-          <p style="color: #64748b; font-size: 13px;">Bu kodu siz talep etmediyseniz lütfen dikkate almayın.</p>
         </div>
       `,
     });
-    console.log(`[NODEMAILER]: Doğrulama kodu ${targetEmail} adresine başarıyla gönderildi.`);
+    console.log(`[MAİL BAŞARILI]: Kod ${targetEmail} adresine gönderildi. MessageID: ${info.messageId}`);
   } catch (e) {
-    console.error('Nodemailer Mail Gönderim Hatası:', e);
+    // Hatayı konsola tam detaylı basıyoruz
+    console.error('❌ MAİL GÖNDERME HATASI:', e.message);
   }
 };
 
