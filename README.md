@@ -6,5 +6,6 @@ Projenin çoklu platform desteği sunabilmesi adına kullanıcı arayüzünü he
 
 Güvenlik tarafında ise endüstri standardı olan uygulamaları projeye aktardım. Kullanıcı parolalarını veritabanında asla açık metin olarak saklamayıp Bcrypt.js ile güçlü bir şekilde hashledim. Oturum yönetimini JWT ile sağlarken, API uç noktalarını kaba kuvvet saldırılarına ve yaygın web zafiyetlerine karşı korumak adına Helmet ve Express Rate Limit katmanlarını sisteme ekledim. Geliştirdiğim bu yapıyı Render Cloud platformu üzerinde canlıya alarak erişilebilir durumda dağıtımını tamamladım.  
 
-Proje BağlantılarıLive Backend API: https://trello-clone-backend-cs8r.onrender.com/api
+Proje Bağlantıları
+Live Backend API: https://trello-clone-backend-cs8r.onrender.com/api
 Database: Render Cloud PostgreSQL  
