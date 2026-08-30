@@ -3,7 +3,7 @@ import cors from 'cors';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -16,24 +16,8 @@ app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// NODEMAILER TRANSPORTER (Gmail SMTP)
-// ❌ ESKİ (Hata Veren) AYAR:
-// const transporter = nodemailer.createTransport({ service: 'gmail', auth: ... });
-
-// ✅ YENİ (Render Uyumlu SSL Port 465) AYAR:
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // SSL kullanımı zaman aşımını engeller
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
 // RATE LIMIT
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
@@ -94,27 +78,35 @@ const initDb = async () => {
 
 initDb();
 
-// GİRİLEN HER E-POSTA ADRESİNE MAİL ATAN FONKSİYON
+// RESEND HTTP API İLE GÖNDERİM (TIMEOUT ENGELENİR)
 const sendVerificationEmail = async (targetEmail, username, code) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"Proje Yönetim Panosu" <${process.env.EMAIL_USER}>`,
-      to: targetEmail,
-      subject: 'E-posta Doğrulama Kodu',
+    // Resend Sandbox modunda sadece kendi kayıtlı email adresinize gönderim izni verir.
+    // Eğer formda farklı bir mail yazılsa bile Resend API engel vermesin diye alıcıyı sabitliyoruz.
+    const recipient = process.env.RESEND_RECIPIENT_EMAIL || 'ryakut263@gmail.com';
+
+    const response = await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: recipient,
+      subject: `E-posta Doğrulama Kodu (${username} - ${targetEmail})`,
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
           <h2 style="color: #0f172a;">Hoş Geldiniz, ${username}!</h2>
-          <p style="color: #334155; font-size: 15px;">Proje Yönetim Panosu doğrulama kodunuz:</p>
+          <p style="color: #334155; font-size: 15px;"><strong>${targetEmail}</strong> adresi için oluşturulan doğrulama kodunuz:</p>
           <div style="background-color: #f1f5f9; padding: 12px; text-align: center; border-radius: 6px; margin: 16px 0;">
             <span style="font-size: 24px; font-weight: bold; letter-spacing: 6px; color: #2563eb;">${code}</span>
           </div>
         </div>
       `,
     });
-    console.log(`[MAİL BAŞARILI]: Kod ${targetEmail} adresine gönderildi. MessageID: ${info.messageId}`);
+
+    if (response.error) {
+      console.error('❌ RESEND API HATASI:', response.error);
+    } else {
+      console.log(`✅ [MAİL BAŞARILI]: Kod e-postanıza iletildi. ID: ${response.data.id}`);
+    }
   } catch (e) {
-    // Hatayı konsola tam detaylı basıyoruz
-    console.error('❌ MAİL GÖNDERME HATASI:', e.message);
+    console.error('❌ RESEND GÖNDERİM HATASI:', e.message);
   }
 };
 
