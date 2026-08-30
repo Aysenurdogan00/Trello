@@ -78,14 +78,23 @@ const initDb = async () => {
 
 initDb();
 
-const sendVerificationEmail = async (email, username, code) => {
+// --------------------------------------------------------------------------
+// E-POSTA GÖNDERME FONKSİYONU (TEST MODU YÖNTEMİ)
+// Formda hangi e-posta yazılırsa yazılsın kod sizin gelen kutunuza ulaşır.
+// --------------------------------------------------------------------------
+const sendVerificationEmail = async (targetEmail, username, code) => {
   try {
     await resend.emails.send({
       from: 'onboarding@resend.dev',
-      to: email,
-      subject: 'E-posta Doğrulama Kodu',
-      html: `<h2>Hoş Geldiniz, ${username}!</h2><p>Proje Yönetim Panosu doğrulama kodunuz: <strong>${code}</strong></p>`
+      to: 'aysenur911.aysenur@gmail.com',
+      subject: `E-posta Doğrulama Kodu (${username} - ${targetEmail})`,
+      html: `
+        <h2>Hoş Geldiniz, ${username}!</h2>
+        <p><strong>${targetEmail}</strong> adresi için oluşturulan doğrulama kodunuz:</p>
+        <h1 style="color: #2563eb; letter-spacing: 4px;">${code}</h1>
+      `
     });
+    console.log(`[RESEND]: Kod ${targetEmail} kullanıcısı için sizin e-postanıza gönderildi.`);
   } catch (e) {
     console.error('Resend Mail Hatası:', e);
   }
@@ -104,7 +113,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ADMIN TEMİZLEME ROTASI (Veritabanını sıfırlamak için)
+// ADMIN TEMİZLEME ROTASI
 app.get('/api/admin/clean-all', async (req, res) => {
   try {
     await pool.query('TRUNCATE TABLE users CASCADE');
