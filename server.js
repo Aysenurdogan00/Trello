@@ -10,13 +10,16 @@ import rateLimit from 'express-rate-limit';
 const { Pool } = pg;
 const app = express();
 
+// Express Rate-Limit proxy uyarısını düzeltme
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'trello_secret_key_123';
 
-// RATE LIMIT (Test için esnek ayarlandı)
+// RATE LIMIT (Test için esnek)
 const generalLimiter = rateLimit({
   windowMs: 30 * 1000,
   max: 100,
@@ -76,15 +79,19 @@ const initDb = async () => {
 
 initDb();
 
+// GÜNCELLENEN NODEMAILER AYARI (Timeout engelini aşmak için Port 587 + STARTTLS)
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  port: 587,
+  secure: false, // TLS kullanır
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 10000, // 10 saniye bağlantı sınırı
 });
 
 const sendVerificationEmail = async (email, username, code) => {
@@ -119,7 +126,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// 1. KAYIT OL (Garantili Akış)
+// 1. KAYIT OL
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, email, password } = req.body;
 
@@ -146,6 +153,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
           [username, hashedPassword, verificationCode, email]
         );
 
+        console.log(`[TEST KODU KOPSUSU] ${email} için üretilen doğrulama kodu: ${verificationCode}`);
         sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
 
         return res.status(200).json({
@@ -166,6 +174,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [username, email, hashedPassword, verificationCode]
     );
 
+    console.log(`[TEST KODU KOPYASI] ${email} için üretilen doğrulama kodu: ${verificationCode}`);
     sendVerificationEmail(email, username, verificationCode).catch(err => console.error('Mail Gönderim Hatası:', err));
 
     return res.status(201).json({
@@ -216,6 +225,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       const newCode = Math.floor(100000 + Math.random() * 900000).toString();
       await pool.query('UPDATE users SET verification_code = $1 WHERE email = $2', [newCode, email]);
       
+      console.log(`[TEST KODU KOPYASI] ${email} için üretilen doğrulama kodu: ${newCode}`);
       sendVerificationEmail(email, user.username, newCode).catch(err => console.error('Mail gönderilemedi:', err));
 
       return res.status(403).json({ 
