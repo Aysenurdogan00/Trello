@@ -1,39 +1,23 @@
 {
-  "name": "trello-clone-fullstack",
-  "version": "1.0.0",
+  "name": "trello-clone-frontend",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.20.0",
-    "expo": "~54.0.36",
-    "expo-status-bar": "~3.0.9",
     "lucide-react": "^0.475.0",
-    "react": "19.1.0",
-    "react-dom": "^19.0.0",
-    "react-native": "0.81.5"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.19.0",
-    "@types/node": "^22.13.1",
-    "@types/react": "~19.1.0",
-    "@types/react-dom": "^19.0.3",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "eslint": "^9.19.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-react-refresh": "^0.4.18",
-    "globals": "^15.14.0",
-    "typescript": "~5.9.2",
-    "typescript-eslint": "^8.22.0",
+    "typescript": "^5.7.2",
     "vite": "^6.1.0"
   }
 }
